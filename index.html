@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>College Locator & Nearby Spots</title>
+  <style>
+    :root{
+      --bg:#f7fafc; --card:#ffffff; --accent:#0366d6; --muted:#6b7280;
+      --radius:14px;
+    }
+    *{box-sizing:border-box;font-family:Inter,ui-sans-serif,system-ui,Arial,sans-serif}
+    body{margin:0;background:var(--bg);color:#0f172a;padding:24px}
+    .container{max-width:1100px;margin:0 auto}
+    header{text-align:center;margin-bottom:20px}
+    h1{font-size:28px;margin:8px 0}
+    .controls{display:flex;flex-wrap:wrap;gap:12px;justify-content:center;margin-bottom:18px}
+    input[type="text"]{padding:10px 12px;border-radius:10px;border:1px solid #e6eef6;min-width:220px}
+    button{background:var(--accent);color:white;border:0;padding:10px 14px;border-radius:10px;cursor:pointer}
+    button.secondary{background:transparent;color:var(--accent);border:1px solid var(--accent)}
+    .card{background:var(--card);border-radius:var(--radius);box-shadow:0 6px 18px rgba(2,6,23,0.06);padding:14px}
+    .classroom-card{max-width:520px;margin:0 auto}
+    .grid{display:grid;gap:14px}
+    .grid.cols-3{grid-template-columns:repeat(3,1fr)}
+    .grid.cols-2{grid-template-columns:repeat(2,1fr)}
+    .restaurant-img{width:100%;height:150px;object-fit:cover;border-radius:10px;margin-bottom:10px}
+    .muted{color:var(--muted);font-size:13px}
+    .menu-link{color:var(--accent);text-decoration:none}
+    .controls .big{min-width:240px}
+    @media (max-width:900px){ .grid.cols-3{grid-template-columns:repeat(2,1fr)} }
+    @media (max-width:600px){ .grid.cols-3,.grid.cols-2{grid-template-columns:1fr} .controls{flex-direction:column;align-items:center} }
+    .top-nav{display:flex;gap:8px;justify-content:center;margin-bottom:12px}
+    .chip{padding:8px 12px;border-radius:999px;background:#fff;border:1px solid #e6eef6;cursor:pointer}
+    .chip.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+    footer{margin-top:22px;text-align:center;color:var(--muted);font-size:13px}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>College Locator & Nearby Spots</h1>
+      <div class="muted">Search classrooms or explore nearby restaurants — single page demo</div>
+    </header>
+
+    <div class="top-nav">
+      <div id="nav-home" class="chip active">Home</div>
+      <div id="nav-classroom" class="chip">Classroom Finder</div>
+      <div id="nav-restaurants" class="chip">Nearby Restaurants</div>
+    </div>
+
+    <main id="app">
+      <!-- Home / Controls -->
+      <section id="view-home" class="card" style="padding:18px;margin-bottom:18px">
+        <div style="display:flex;flex-direction:column;align-items:center;gap:12px">
+          <div class="controls">
+            <input id="input-room" type="text" placeholder="Enter Room Number (e.g., A101)" />
+            <button id="btn-search-room" class="big">Find Classroom</button>
+            <button id="btn-view-restaurants" class="secondary">Find Nearby Restaurants</button>
+          </div>
+          <div class="muted">This demo uses sample data and computes distances from the college coordinates.</div>
+        </div>
+      </section>
+
+      <!-- Classroom Result -->
+      <section id="view-classroom" style="display:none;margin-bottom:18px">
+        <div class="card classroom-card" id="classroom-result"></div>
+      </section>
+
+      <!-- Restaurants -->
+      <section id="view-restaurants" style="display:none">
+        <div class="card" style="padding:18px;margin-bottom:12px">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <div>
+              <h2 style="margin:0">Nearby Restaurants</h2>
+              <div class="muted">Tap a card to open map or menu</div>
+            </div>
+            <div>
+              <button id="btn-refresh" class="secondary">Refresh</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="restaurant-grid" class="grid cols-3"></div>
+      </section>
+
+      <footer>
+        Demo built with OOP-style JS classes — easy to port to Java Spring Boot backend.
+      </footer>
+    </main>
+  </div>
+
+  <script>
+    /**************************************************************************
+     * OOP classes mirroring the Java design
+     **************************************************************************/
+
+    // Basic data models
+    class Classroom {
+      constructor(id, roomNumber, building, floor, mapLink) {
+        this.id = id;
+        this.roomNumber = roomNumber;
+        this.building = building;
+        this.floor = floor;
+        this.mapLink = mapLink;
+      }
+    }
+
+    class Restaurant {
+      constructor(id, name, imageUrl, menuUrl, lat, lng, category) {
+        this.id = id;
+        this.name = name;
+        this.imageUrl = imageUrl;
+        this.menuUrl = menuUrl;
+        this.lat = lat;
+        this.lng = lng;
+        this.category = category;
+      }
+    }
+
+    /**************************************************************************
+     * Services (simulate backend). Replace these with real API calls later.
+     **************************************************************************/
+
+    class ClassroomService {
+      constructor(data) { this.data = data || []; }
+      // find by room number (case-insensitive)
+      findByRoomNumber(roomNumber) {
+        if(!roomNumber) return null;
+        const normalized = roomNumber.trim().toLowerCase();
+        return this.data.find(c => String(c.roomNumber).trim().toLowerCase() === normalized) || null;
+      }
+    }
+
+    class RestaurantService {
+      constructor(data) { this.data = data || []; }
+      getAll() { return this.data.slice(); } // return copy
+    }
+
+    /**************************************************************************
+     * Utility: Haversine distance between two lat/lng in km
+     * We'll compute carefully (digit-by-digit style: break into steps).
+     **************************************************************************/
+    function toRadians(deg) { return deg * Math.PI / 180.0; }
+
+    function haversineKm(lat1, lon1, lat2, lon2) {
+      // Step-by-step to reduce arithmetic mistakes
+      const R = 6371.0; // Earth radius km
+      const dLat = toRadians(lat2 - lat1);
+      const dLon = toRadians(lon2 - lon1);
+      const rLat1 = toRadians(lat1);
+      const rLat2 = toRadians(lat2);
+
+      const sinDLat = Math.sin(dLat / 2.0);
+      const sinDLon = Math.sin(dLon / 2.0);
+      const a = (sinDLat * sinDLat) + (Math.cos(rLat1) * Math.cos(rLat2) * sinDLon * sinDLon);
+      const c = 2.0 * Math.atan2(Math.sqrt(a), Math.sqrt(1.0 - a));
+      const d = R * c;
+      // round to two decimals
+      return Math.round(d * 100) / 100;
+    }
+
+    /**************************************************************************
+     * Sample Data (replace these with DB/API)
+     * - Set college coordinates (latitude, longitude) for distance calc & maps
+     **************************************************************************/
+
+    const COLLEGE = {
+      name: "Example College",
+      lat: 12.9718915,    // example: Bangalore-ish coords
+      lng: 77.5936865
+    };
+
+    const SAMPLE_CLASSROOMS = [
+      new Classroom(1, "A101", "Main Block A", 1, googleMapsLinkForCoords(12.9718915, 77.5936865, "Main Block A, A101")),
+      new Classroom(2, "B201", "Science Block B", 2, googleMapsLinkForCoords(12.9726, 77.5945, "Science Block B, B201")),
+      new Classroom(3, "C301", "Library Wing C", 3, googleMapsLinkForCoords(12.9708, 77.5929, "Library Wing C, C301")),
+      // add more as needed
+    ];
+
+    const SAMPLE_RESTAURANTS = [
+      new Restaurant(1, "Cafe Aroma", "https://images.unsplash.com/photo-1541544180-4c6f0d2a6c5b?w=1200&q=80", "https://example.com/menu/cafe-aroma", 12.9725, 77.5942, "Cafe"),
+      new Restaurant(2, "Spice Junction", "https://images.unsplash.com/photo-1555992336-03a23c6b9816?w=1200&q=80", "https://example.com/menu/spice-junction", 12.9699, 77.5921, "Indian"),
+      new Restaurant(3, "Green Bites (Veg)", "https://images.unsplash.com/photo-1526318472351-c75fcf0707e7?w=1200&q=80", "https://example.com/menu/green-bites", 12.9740, 77.5950, "Veg"),
+      new Restaurant(4, "Burger Hub", "https://images.unsplash.com/photo-1551782450-a2132b4ba21d?w=1200&q=80", "https://example.com/menu/burger-hub", 12.9702, 77.5970, "Fast Food"),
+      new Restaurant(5, "Oriental Treats", "https://images.unsplash.com/photo-1544025162-d76694265947?w=1200&q=80", "https://example.com/menu/oriental-treats", 12.9688, 77.5913, "Chinese"),
+    ];
+
+    function googleMapsLinkForCoords(lat, lng, label){
+      // Use Google Maps query with coordinates and optional label (URL encoded)
+      const q = encodeURIComponent(`${lat},${lng} (${label || ''})`);
+      return `https://www.google.com/maps/search/?api=1&query=${q}`;
+    }
+
+    /**************************************************************************
+     * Instantiate services (replace implementations by API calls in real app)
+     **************************************************************************/
+    const classroomService = new ClassroomService(SAMPLE_CLASSROOMS);
+    const restaurantService = new RestaurantService(SAMPLE_RESTAURANTS);
+
+    /**************************************************************************
+     * UI rendering & event wiring
+     **************************************************************************/
+
+    function showView(viewId) {
+      document.querySelectorAll('#view-home, #view-classroom, #view-restaurants').forEach(el => el.style.display = 'none');
+      document.getElementById(viewId).style.display = '';
+      // update nav chips
+      document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+      if(viewId === 'view-home') document.getElementById('nav-home').classList.add('active');
+      if(viewId === 'view-classroom') document.getElementById('nav-classroom').classList.add('active');
+      if(viewId === 'view-restaurants') document.getElementById('nav-restaurants').classList.add('active');
+    }
+
+    // classroom search handler
+    async function handleSearchClassroom() {
+      const input = document.getElementById('input-room').value.trim();
+      if(!input){ alert('Please enter a room number.'); return; }
+      // In production call API: GET /api/classrooms/{roomNumber}
+      const found = classroomService.findByRoomNumber(input);
+      const container = document.getElementById('classroom-result');
+      container.innerHTML = '';
+      if(!found){
+        container.innerHTML = `<div style="padding:18px"><strong>No classroom found for "${escapeHtml(input)}".</strong><div class="muted" style="margin-top:8px">Try A101, B201, C301 in demo data.</div></div>`;
+        showView('view-classroom');
+        return;
+      }
+
+      // build HTML
+      const html = `
+        <div style="display:flex;gap:12px;align-items:center">
+          <div style="flex:1">
+            <h3 style="margin:0 0 8px 0">Room <strong>${escapeHtml(found.roomNumber)}</strong></h3>
+            <div class="muted">Building: ${escapeHtml(found.building)}</div>
+            <div class="muted">Floor: ${escapeHtml(found.floor)}</div>
+          </div>
+          <div style="min-width:160px;text-align:right">
+            <a href="${found.mapLink}" target="_blank" rel="noopener noreferrer"><button>View on Google Maps</button></a>
+          </div>
+        </div>
+      `;
+      container.innerHTML = html;
+      showView('view-classroom');
+    }
+
+    function escapeHtml(s){ return String(s).replace(/[&<>"']/g, function(m){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]; }); }
+
+    // render restaurants
+    function renderRestaurants() {
+      const list = restaurantService.getAll();
+      const grid = document.getElementById('restaurant-grid');
+      grid.innerHTML = ''; // clear
+
+      // sort by distance ascending
+      const enriched = list.map(r => {
+        const dist = haversineKm(COLLEGE.lat, COLLEGE.lng, r.lat, r.lng);
+        return { r, dist };
+      }).sort((a,b)=> a.dist - b.dist);
+
+      enriched.forEach(({r, dist}) => {
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.style.padding = '12px';
+
+        // image fallback if missing
+        const img = document.createElement('img');
+        img.src = r.imageUrl;
+        img.alt = r.name;
+        img.className = 'restaurant-img';
+        card.appendChild(img);
+
+        const title = document.createElement('h3');
+        title.textContent = r.name;
+        title.style.margin = '6px 0';
+        card.appendChild(title);
+
+        const cat = document.createElement('div');
+        cat.className = 'muted';
+        cat.textContent = r.category + ' • ' + dist + ' km';
+        card.appendChild(cat);
+
+        const links = document.createElement('div');
+        links.style.display = 'flex';
+        links.style.gap = '8px';
+        links.style.marginTop = '10px';
+
+        const menuA = document.createElement('a');
+        menuA.href = r.menuUrl;
+        menuA.target = '_blank';
+        menuA.rel = 'noopener noreferrer';
+        menuA.textContent = 'View Menu';
+        menuA.className = 'menu-link';
+        links.appendChild(menuA);
+
+        const mapsA = document.createElement('a');
+        const mapsLink = googleMapsLinkForCoords(r.lat, r.lng, r.name);
+        mapsA.href = mapsLink;
+        mapsA.target = '_blank';
+        mapsA.rel = 'noopener noreferrer';
+        const mapsBtn = document.createElement('button');
+        mapsBtn.textContent = 'View on Google Maps';
+        mapsBtn.style.marginLeft = 'auto';
+        mapsA.appendChild(mapsBtn);
+
+        // optional: clicking the whole card opens maps
+        card.addEventListener('click', (ev) => {
+          // if user clicked the menu link, ignore
+          if(ev.target.tagName.toLowerCase() === 'a' || ev.target.tagName.toLowerCase() === 'button') return;
+          window.open(mapsLink, '_blank', 'noopener');
+        });
+
+        links.appendChild(mapsA);
+        card.appendChild(links);
+        grid.appendChild(card);
+      });
+
+      showView('view-restaurants');
+    }
+
+    // Hook up DOM events
+    document.getElementById('btn-search-room').addEventListener('click', handleSearchClassroom);
+    document.getElementById('btn-view-restaurants').addEventListener('click', renderRestaurants);
+    document.getElementById('btn-refresh').addEventListener('click', renderRestaurants);
+
+    // nav chips
+    document.getElementById('nav-home').addEventListener('click', () => { showView('view-home'); });
+    document.getElementById('nav-classroom').addEventListener('click', () => { showView('view-classroom'); });
+    document.getElementById('nav-restaurants').addEventListener('click', () => { renderRestaurants(); });
+
+    // allow Enter key in input
+    document.getElementById('input-room').addEventListener('keydown', (e) => {
+      if(e.key === 'Enter') handleSearchClassroom();
+    });
+
+    // start on home
+    showView('view-home');
+
+    /**************************************************************************
+     * Notes:
+     * - To connect to a real Spring Boot backend:
+     *   Replace ClassroomService and RestaurantService implementations with API calls
+     *   (e.g., use fetch or axios to GET /api/classrooms/{roomNumber} and /api/restaurants).
+     *
+     * - This demo stores Google Maps links using coordinates (so the "View on Google Maps"
+     *   button opens the right spot). In a real deployment you can store maps_link in DB.
+     *
+     * - The OOP classes and services mirror Java/Spring beans, making porting easy:
+     *   Classroom <-> Classroom entity
+     *   ClassroomService.findByRoomNumber() <-> @Service in Spring calling repository
+     *
+     **************************************************************************/
+  </script>
+</body>
+</html>
